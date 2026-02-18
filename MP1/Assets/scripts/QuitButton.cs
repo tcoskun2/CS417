@@ -1,19 +1,28 @@
 using UnityEngine;
+using UnityEngine.InputSystem;
 
-/// <summary>
-/// Simple quit handler for VR. Can be triggered by:
-///   - A world-space UI Button (wire OnClick → QuitGame)
-///   - An XR Poke Interactable (wire Poke Entered → QuitGame)
-///   - Any UnityEvent
-///
-/// In the Editor it stops Play mode; in a build it exits the application.
-/// </summary>
 public class QuitButton : MonoBehaviour
 {
-    public void QuitGame()
-    {
-        Debug.Log("[QuitButton] Quitting application.");
+    [Tooltip("Assign any Input Action (e.g. a controller button or keyboard key) to trigger quit.")]
+    public InputActionReference quitAction;
 
+    void OnEnable()
+    {
+        if (quitAction != null)
+        {
+            quitAction.action.Enable();
+            quitAction.action.performed += OnQuit;
+        }
+    }
+
+    void OnDisable()
+    {
+        if (quitAction != null)
+            quitAction.action.performed -= OnQuit;
+    }
+
+    void OnQuit(InputAction.CallbackContext ctx)
+    {
 #if UNITY_EDITOR
         UnityEditor.EditorApplication.isPlaying = false;
 #else

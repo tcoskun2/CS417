@@ -5,11 +5,11 @@ using UnityEngine.XR.Interaction.Toolkit.Interactables;
 
 /// <summary>
 /// Attach to each chair (child of a desk).
-/// Slides back/forth along a local axis. Snaps to pushed-in or pulled-out on release.
-/// XRI is only used for grab detection — all movement is handled by this script
-/// so the chair never warps to the hand.
+/// Uses XRSimpleInteractable (no built-in movement) so XRI never teleports the chair.
+/// While held, the chair slides along the local Z axis based on hand movement.
+/// On release it snaps fully to pushed-in or pulled-out.
 /// </summary>
-[RequireComponent(typeof(XRGrabInteractable))]
+[RequireComponent(typeof(XRSimpleInteractable))]
 [RequireComponent(typeof(Rigidbody))]
 public class GrabbableChair : MonoBehaviour
 {
@@ -18,50 +18,41 @@ public class GrabbableChair : MonoBehaviour
     public int chairIndex;
 
     [Header("Slide Constraint (local space)")]
-    [Tooltip("Local-space axis the chair slides along (e.g. 0,0,1 for local Z).")]
-    public Vector3 slideAxis = Vector3.forward;
-
-    [Tooltip("Local offset from the starting position when the chair is fully pushed in.")]
+    [Tooltip("Local offset along Z when fully pushed in (usually 0).")]
     public float pushedInOffset = 0f;
 
-    [Tooltip("Local offset from the starting position when the chair is fully pulled out.")]
-    public float pulledOutOffset = 0.5f;
+    [Tooltip("Local offset along Z when fully pulled out (e.g. 0.6).")]
+    public float pulledOutOffset = 0.6f;
 
     [Header("State")]
     [Tooltip("Does this chair start pushed in?")]
     public bool startPushedIn = true;
 
     [Header("References")]
-    [Tooltip("Drag the ChairPuzzleManager here so the chair can notify it on release.")]
     public ChairPuzzleManager puzzleManager;
 
-    [HideInInspector]
-    public bool isPushedIn;
+    [HideInInspector] public bool isPushedIn;
 
     private Vector3 localStartPos;
     private Quaternion localStartRot;
-    private Vector3 slideDir;
     private float slideMin;
     private float slideMax;
-    private XRGrabInteractable grab;
+
+    private XRSimpleInteractable interactable;
     private Rigidbody rb;
 
-    // Grab tracking — we move the chair ourselves based on hand delta
-    private Vector3 grabStartInteractorWorldPos;
-    private Vector3 grabStartChairLocalPos;
+    private bool isHeld = false;
+    private UnityEngine.XR.Interaction.Toolkit.Interactors.IXRSelectInteractor heldBy;
+    private Vector3 handStartWorldPos;
+    private float chairOffsetAtGrab;
 
     void Awake()
     {
-        grab = GetComponent<XRGrabInteractable>();
+        interactable = GetComponent<XRSimpleInteractable>();
         rb = GetComponent<Rigidbody>();
 
         rb.isKinematic = true;
         rb.useGravity = false;
-
-        // Prevent XRI from moving the chair — we handle all movement ourselves.
-        grab.trackPosition = false;
-        grab.trackRotation = false;
-        grab.throwOnDetach = false;
     }
 
     void Start()
@@ -71,29 +62,80 @@ public class GrabbableChair : MonoBehaviour
 
         localStartPos = transform.localPosition;
         localStartRot = transform.localRotation;
-        slideDir = slideAxis.normalized;
-
         slideMin = Mathf.Min(pushedInOffset, pulledOutOffset);
         slideMax = Mathf.Max(pushedInOffset, pulledOutOffset);
 
         isPushedIn = startPushedIn;
-        float offset = isPushedIn ? pushedInOffset : pulledOutOffset;
-        transform.localPosition = localStartPos + slideDir * offset;
+        SnapTo(isPushedIn ? pushedInOffset : pulledOutOffset);
 
-        grab.selectEntered.AddListener(OnGrabbed);
-        grab.selectExited.AddListener(OnReleased);
+        interactable.selectEntered.AddListener(OnGrabbed);
+        interactable.selectExited.AddListener(OnReleased);
+    }
+
+    void OnDestroy()
+    {
+        if (interactable != null)
+        {
+            interactable.selectEntered.RemoveListener(OnGrabbed);
+            interactable.selectExited.RemoveListener(OnReleased);
+        }
+    }
+
+    void OnGrabbed(SelectEnterEventArgs args)
+    {
+        isHeld = true;
+        heldBy = args.interactorObject;
+
+        // Record where the hand is right now and the chair's current offset
+        handStartWorldPos = heldBy.transform.position;
+        chairOffsetAtGrab = isPushedIn ? pushedInOffset : pulledOutOffset;
+    }
+
+    void OnReleased(SelectExitEventArgs args)
+    {
+        isHeld = false;
+        heldBy = null;
+
+        // Snap to whichever end the chair is closer to
+        float currentOffset = Vector3.Dot(transform.localPosition - localStartPos, Vector3.forward);
+        float midpoint = (pushedInOffset + pulledOutOffset) * 0.5f;
+        isPushedIn = currentOffset < midpoint;
+
+        SnapTo(isPushedIn ? pushedInOffset : pulledOutOffset);
+
+        puzzleManager?.OnChairStateChanged();
+    }
+
+    void Update()
+    {
+        if (!isHeld || heldBy == null) return;
+
+        // Project hand movement onto the world-space Z axis of the chair's parent
+        Vector3 worldForward = transform.parent != null
+            ? transform.parent.TransformDirection(Vector3.forward)
+            : Vector3.forward;
+
+        Vector3 handDelta = heldBy.transform.position - handStartWorldPos;
+        float slideAmount = Vector3.Dot(handDelta, worldForward);
+
+        float newOffset = Mathf.Clamp(chairOffsetAtGrab + slideAmount, slideMin, slideMax);
+        transform.localPosition = localStartPos + Vector3.forward * newOffset;
+        transform.localRotation = localStartRot;
+    }
+
+    void SnapTo(float offset)
+    {
+        transform.localPosition = localStartPos + Vector3.forward * offset;
+        transform.localRotation = localStartRot;
     }
 
     void EnsureColliderExists()
     {
-        Collider existing = GetComponentInChildren<Collider>();
-
-        if (existing == null)
+        if (GetComponentInChildren<Collider>() == null)
         {
             Renderer[] renderers = GetComponentsInChildren<Renderer>();
             if (renderers.Length == 0)
             {
-                Debug.LogWarning($"[GrabbableChair] '{name}' has no Collider and no Renderer. Adding a default BoxCollider.", this);
                 gameObject.AddComponent<BoxCollider>();
             }
             else
@@ -106,102 +148,31 @@ public class GrabbableChair : MonoBehaviour
                 box.center = transform.InverseTransformPoint(bounds.center);
                 box.size = transform.InverseTransformVector(bounds.size);
                 box.size = new Vector3(Mathf.Abs(box.size.x), Mathf.Abs(box.size.y), Mathf.Abs(box.size.z));
-
-                Debug.Log($"[GrabbableChair] Auto-added BoxCollider to '{name}' (size: {box.size}).", this);
+                Debug.Log($"[GrabbableChair] Auto-added BoxCollider to '{name}'.", this);
             }
         }
 
-        List<Collider> freshColliders = new List<Collider>(GetComponentsInChildren<Collider>());
-        grab.colliders.Clear();
-        grab.colliders.AddRange(freshColliders);
+        // Register all colliders with the interactable so the ray can detect it
+        List<Collider> cols = new List<Collider>(GetComponentsInChildren<Collider>());
+        interactable.colliders.Clear();
+        interactable.colliders.AddRange(cols);
 
-        grab.enabled = false;
-        grab.enabled = true;
-
-        Debug.Log($"[GrabbableChair] '{name}' registered {freshColliders.Count} collider(s) with XRGrabInteractable.", this);
+        interactable.enabled = false;
+        interactable.enabled = true;
     }
 
     void ExcludeParentDesksFromRaycast()
     {
-        Transform current = transform.parent;
         int ignoreLayer = LayerMask.NameToLayer("Ignore Raycast");
-
+        Transform current = transform.parent;
         while (current != null)
         {
-            Collider[] parentColliders = current.GetComponents<Collider>();
-            foreach (Collider col in parentColliders)
+            foreach (Collider col in current.GetComponents<Collider>())
             {
                 if (current.GetComponent<XRBaseInteractable>() == null)
-                {
                     col.gameObject.layer = ignoreLayer;
-                    Debug.Log($"[GrabbableChair] Set parent '{current.name}' to Ignore Raycast layer.", this);
-                }
             }
             current = current.parent;
         }
-    }
-
-    void OnDestroy()
-    {
-        if (grab != null)
-        {
-            grab.selectEntered.RemoveListener(OnGrabbed);
-            grab.selectExited.RemoveListener(OnReleased);
-        }
-    }
-
-    void OnGrabbed(SelectEnterEventArgs args)
-    {
-        grabStartInteractorWorldPos = args.interactorObject.transform.position;
-
-        // Use the known-good snapped position, not whatever XRI may have
-        // already moved the chair to during its internal grab processing.
-        float currentOffset = isPushedIn ? pushedInOffset : pulledOutOffset;
-        grabStartChairLocalPos = localStartPos + slideDir * currentOffset;
-
-        // Force the chair back to its correct position immediately.
-        transform.localPosition = grabStartChairLocalPos;
-        transform.localRotation = localStartRot;
-    }
-
-    void LateUpdate()
-    {
-        if (!grab.isSelected) return;
-
-        // How far has the hand moved in world space since grab started?
-        Vector3 interactorWorldPos = grab.interactorsSelecting[0].transform.position;
-        Vector3 worldDelta = interactorWorldPos - grabStartInteractorWorldPos;
-
-        // Convert the slide direction from local to world space
-        Vector3 worldSlideDir = transform.parent != null
-            ? transform.parent.TransformDirection(slideDir)
-            : slideDir;
-
-        // Project the hand movement onto the slide axis
-        float slideAmount = Vector3.Dot(worldDelta, worldSlideDir);
-
-        // Apply to the chair's local position (relative to where it was when grabbed)
-        Vector3 targetLocal = grabStartChairLocalPos + slideDir * slideAmount;
-        float projected = Vector3.Dot(targetLocal - localStartPos, slideDir);
-        projected = Mathf.Clamp(projected, slideMin, slideMax);
-
-        transform.localPosition = localStartPos + slideDir * projected;
-        transform.localRotation = localStartRot;
-    }
-
-    void OnReleased(SelectExitEventArgs args)
-    {
-        Vector3 localOffset = transform.localPosition - localStartPos;
-        float projected = Vector3.Dot(localOffset, slideDir);
-
-        float midpoint = (pushedInOffset + pulledOutOffset) * 0.5f;
-        isPushedIn = projected < midpoint;
-
-        float snapOffset = isPushedIn ? pushedInOffset : pulledOutOffset;
-        transform.localPosition = localStartPos + slideDir * snapOffset;
-        transform.localRotation = localStartRot;
-
-        if (puzzleManager != null)
-            puzzleManager.OnChairStateChanged();
     }
 }
