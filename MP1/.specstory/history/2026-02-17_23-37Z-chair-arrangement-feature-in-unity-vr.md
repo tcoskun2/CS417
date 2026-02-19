@@ -2842,3 +2842,164 @@ So `[false, true, true, false]` means the player needs to pull chairs 0 and 3 ou
 
 ---
 
+_**User**_
+
+i want to add this feature:
+right now i can throw/grab the water bottle freely as it has an XR grab interactable component.
+i want the bottle to be locked in its place, until the chair puzzle is complete. after the chair puzzle is complete we can grab/throw the bottle freely
+
+---
+
+_**Agent (model claude-4.6-sonnet-medium-thinking, mode Agent)**_
+
+<think><details><summary>Thought Process</summary>
+The user wants to lock the water bottle in place until the chair puzzle is solved, then unlock it. The water bottle already has an `XRGrabInteractable` component. The simplest approach is to disable the `XRGrabInteractable` at start, and enable it when the puzzle is solved. This can be done by wiring the `onPuzzleSolved` event to enable the component, or by adding a small script.
+
+Actually, the cleanest way is just to disable the `XRGrabInteractable` component on the bottle at start, and then the `ChairPuzzleManager.onPuzzleSolved` UnityEvent can call `XRGrabInteractable.enabled = true` directly — no new script needed.
+
+
+I can wire this up directly in the Inspector since Unity exposes the `enabled` property on Behaviours through UnityEvents. So I'll disable the `XRGrabInteractable` on the water bottle, then add it to the `onPuzzleSolved` event and set its enabled property to true when the puzzle completes.
+
+But I also need to think about the Rigidbody — if it has gravity enabled, the bottle could still fall even with the grab interactable disabled. The ideal approach would be to make the Rigidbody kinematic at start, then toggle it back to non-kinematic when the puzzle solves, but the problem is that `isKinematic` isn't easily exposed as a settable property in UnityEvent dropdowns like `enabled` is.
+
+I think the cleanest path forward is to create a small script that handles both the grab interactable and Rigidbody state together. I'll modify `WaterBottleUnlock.cs` to add methods that disable the grab and freeze the physics at start, then re-enable both when the puzzle is solved.</details></think>
+
+---
+
+The cleanest approach is to modify `WaterBottleUnlock.cs` — it's already wired to `onPuzzleSolved`, so we just add the grab lock/unlock logic there.
+
+---
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2">
+<details><summary>Tool use: **read_file_v2** • Read file: /Users/kvg2005/Documents/GitHub/CS417/MP1/Assets/scripts/WaterBottleUnlock.cs</summary>
+
+</details>
+</tool-use>
+
+---
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2">
+
+<details><summary>Tool use: **edit_file_v2** • Edit file: /Users/kvg2005/Documents/GitHub/CS417/MP1/Assets/scripts/WaterBottleUnlock.cs</summary>
+
+</details>
+
+</tool-use>
+
+---
+
+<tool-use data-tool-type="unknown" data-tool-name="read_lints">
+<details>
+<summary>Tool use: **read_lints**</summary>
+
+
+Parameters:
+
+```json
+{
+  "paths": [
+    "/Users/kvg2005/Documents/GitHub/CS417/MP1/Assets/scripts/WaterBottleUnlock.cs"
+  ]
+}
+```
+Result:
+
+```json
+{
+  "linterErrorsByFile": [
+    {
+      "relativeWorkspacePath": "/Users/kvg2005/Documents/GitHub/CS417/MP1/Assets/scripts/WaterBottleUnlock.cs"
+    }
+  ]
+}
+```
+Status: **completed**
+
+
+</details>
+</tool-use>
+
+---
+
+No lint errors. Here's what changed:
+
+**On `Start()`:**
+- Disables the `XRGrabInteractable` component → bottle can't be hovered, selected, or grabbed
+- Sets the Rigidbody to kinematic with no gravity → bottle stays frozen in place and can't be knocked around
+
+**On `Unlock()` (when puzzle is solved):**
+- Re-enables `XRGrabInteractable` → bottle is now fully grabbable/throwable again
+- Restores Rigidbody to non-kinematic with gravity → normal physics resumes
+- Glow and text effects still trigger as before
+
+No scene changes needed — the script auto-detects the `XRGrabInteractable` and `Rigidbody` already on the bottle. Just make sure `Unlock()` is wired to `onPuzzleSolved` on the `ChairPuzzleManager`, which it already should be from your earlier setup.
+
+---
+
+_**User**_
+
+i have a square trash can object in my game. Can i put a socket interactor inside it so that it detects the water bottle being thrown/put inside it
+
+---
+
+_**Agent (model claude-4.6-sonnet-medium-thinking, mode Agent)**_
+
+<think><details><summary>Thought Process</summary>
+The user wants to create a socket interactor inside a trash can that detects when the water bottle is thrown/placed inside it. This is a great use of XRI's `XRSocketInteractor`. Let me think about how to set this up.
+
+An `XRSocketInteractor` is perfect for this - it's a fixed-position interactor that can "receive" interactables when they come close enough. When the water bottle is thrown into the trash can, the socket interactor can snap it in and fire events.
+
+Let me explain how to set this up in Unity and whether any code changes are needed.
+
+The key things:
+1. Create an empty child GameObject inside the trash can
+
+
+2. Add `XRSocketInteractor` to it
+3. Add a trigger collider (sphere) sized to fit inside the trash can opening
+4. The socket will auto-snap the bottle when it gets close enough
+5. Wire the `selectEntered` event to do something (play sound, trigger completion, etc.)
+
+For basic detection, the XRSocketInteractor's built-in events handle everything, but if they want custom behavior like destroying the bottle or triggering a puzzle completion, I can write a small script to hook into those events.</details></think>
+
+---
+
+Yes, `XRSocketInteractor` is exactly the right tool for this. It's a fixed-point interactor that detects when an `XRGrabInteractable` (like the bottle) enters its zone and snaps it in. No new script is needed for basic detection — it's all built into XRI.
+
+---
+
+## Scene Setup
+
+**1. Create the socket inside the trash can:**
+- Select the trash can in the Hierarchy
+- Right-click → **Create Empty** child, name it `BottleSocket`
+- Position it at the **centre/opening** of the trash can (where you want the bottle to land)
+
+**2. Add the components to `BottleSocket`:**
+- Add **`XR Socket Interactor`** component
+- Add a **`Sphere Collider`** — check **`Is Trigger`**, set the radius to roughly match the trash can opening (e.g. `0.2`)
+
+**3. Configure the socket:**
+- On `XR Socket Interactor`, set **Interaction Layer Mask** to match the bottle's layer (default is `Everything` which works fine)
+- You can optionally assign a **Show Interactable Reticle** to give a visual indicator when the bottle is hovering over the can
+
+**4. Wire up an event:**
+- On the `XR Socket Interactor`, find **Select Entered** event
+- Click **+** and connect whatever should happen when the bottle lands in the can — e.g. play an audio clip, trigger a particle effect, or call a method
+
+---
+
+## One important setting
+
+By default the socket will **snap and hold** the bottle (it becomes socketed and the player can't grab it back out). If you want the bottle to just **drop in and stay** (like a real trash can), that's perfect as-is.
+
+If you want the player to be able to **pick the bottle back out**, uncheck **`Recycle Delay Time`** and make sure **`Socket Active`** stays true after selection.
+
+---
+
+## Optional: Trigger a custom event on detection
+
+If you want something specific to happen (e.g. a sound, a win condition, destroying the bottle), I can write a small script that hooks into the socket's `selectEntered` event. Just let me know what you want to happen when the bottle lands in the can.
+
+---
+

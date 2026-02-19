@@ -1,16 +1,17 @@
 using UnityEngine;
 using TMPro;
+using UnityEngine.XR.Interaction.Toolkit.Interactables;
 
 /// <summary>
 /// Attach to the water bottle in the scene.
-/// When Unlock() is called (by the ChairPuzzleManager's onPuzzleSolved event),
-/// the bottle lights up and floating text appears saying "the curse is lifted".
+/// The bottle is locked (not grabbable) until the chair puzzle is solved.
+/// When Unlock() is called, the bottle glows, shows floating text, and becomes freely grabbable.
 /// 
 /// Setup:
 ///   1. Add a Point Light as a child of the water bottle — disable it in the scene.
 ///   2. Add a 3D TextMeshPro (TextMeshPro - Text) as a child — disable it in the scene.
 ///   3. Drag both into this component's fields.
-///   4. In ChairPuzzleManager, add this object's Unlock() method to onPuzzleSolved.
+///   4. In ChairPuzzleManager, wire onPuzzleSolved → WaterBottleUnlock.Unlock().
 /// </summary>
 public class WaterBottleUnlock : MonoBehaviour
 {
@@ -44,9 +45,24 @@ public class WaterBottleUnlock : MonoBehaviour
     private bool unlocked = false;
     private float fadeTimer = 0f;
     private Vector3 textStartLocal;
+    private XRGrabInteractable grabInteractable;
+    private Rigidbody rb;
 
     void Start()
     {
+        grabInteractable = GetComponent<XRGrabInteractable>();
+        rb = GetComponent<Rigidbody>();
+
+        // Lock the bottle until the puzzle is solved
+        if (grabInteractable != null)
+            grabInteractable.enabled = false;
+
+        if (rb != null)
+        {
+            rb.isKinematic = true;
+            rb.useGravity = false;
+        }
+
         if (glowLight != null)
         {
             glowLight.color = glowColor;
@@ -64,7 +80,8 @@ public class WaterBottleUnlock : MonoBehaviour
     }
 
     /// <summary>
-    /// Call this from ChairPuzzleManager.onPuzzleSolved to trigger the effect.
+    /// Called by ChairPuzzleManager.onPuzzleSolved.
+    /// Enables grabbing and triggers the visual effect.
     /// </summary>
     public void Unlock()
     {
@@ -72,13 +89,23 @@ public class WaterBottleUnlock : MonoBehaviour
         unlocked = true;
         fadeTimer = 0f;
 
+        // Make the bottle grabbable and subject to physics
+        if (grabInteractable != null)
+            grabInteractable.enabled = true;
+
+        if (rb != null)
+        {
+            rb.isKinematic = false;
+            rb.useGravity = true;
+        }
+
         if (glowLight != null)
             glowLight.gameObject.SetActive(true);
 
         if (unlockText != null)
             unlockText.gameObject.SetActive(true);
 
-        Debug.Log("[WaterBottleUnlock] The curse is lifted!");
+        Debug.Log("[WaterBottleUnlock] The curse is lifted! Bottle is now grabbable.");
     }
 
     void Update()
