@@ -2675,6 +2675,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::ToggleActive
   target: {fileID: 1332917133}
+  disableWhenToggled: {fileID: 1333868729}
 --- !u!114 &1332917136
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -2839,6 +2840,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::ToggleActive
   target: {fileID: 1333868729}
+  disableWhenToggled: {fileID: 1332917133}
 --- !u!114 &1333868732
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -2860,9 +2862,10 @@ MonoBehaviour:
     m_PersistentCalls:
       m_Calls: []
   m_text: "Hints:\n\nChairs: \nPulled out = 1, Pushed in = 0\nAn incorrect code was
-    tried for 128:\n000010000000\n\nSomeone should dispose of the bottle and free
-    us from the curse\n\nTo complete your role as the TA, you must pass out the grades.
-    \nLook at the projector screen for advice."
+    tried for 128:\n000010000000\nThe order matters! Remember your binary or else
+    be punished! (with a red herring)\n\nSomeone should dispose of the bottle and
+    free us from the curse\n\nTo complete your role as the TA, you must pass out
+    the grades. \nLook at the projector screen for advice."
   m_isRightToLeft: 0
   m_fontAsset: {fileID: 11400000, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}
   m_sharedMaterial: {fileID: 2180264, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}

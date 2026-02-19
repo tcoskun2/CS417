@@ -4,35 +4,41 @@ using UnityEngine.Events;
 /// <summary>
 /// Central manager for the chair-arrangement puzzle.
 /// Each chair is a child of its desk and can be pushed in or pulled out.
-/// The player must set every chair to the correct state (pushed-in or pulled-out)
-/// to solve the puzzle and unlock the code.
-///
-/// Setup:
-///   1. Drag every GrabbableChair into the "chairs" array.
-///   2. Set "correctStates" to the matching pushed-in pattern (true = pushed in, false = pulled out).
-///   3. Wire onPuzzleSolved to whatever should happen (reveal code, open door, etc.).
+/// The player must set every chair to the correct state to solve the puzzle.
+/// A specific wrong configuration triggers a color inversion penalty.
 /// </summary>
 public class ChairPuzzleManager : MonoBehaviour
 {
-    [Header("All chairs in the puzzle (order must match correctStates)")]
+    [Header("All chairs in the puzzle (order must match the state arrays)")]
     public GrabbableChair[] chairs;
 
     [Header("Correct pushed-in states (true = pushed in, false = pulled out)")]
-    [Tooltip("One entry per chair. E.g. [true, false, false, true] means chairs 0 and 3 pushed in, 1 and 2 pulled out.")]
+    [Tooltip("The winning configuration. Length must match chairs array.")]
     public bool[] correctStates;
 
+    [Header("Penalty Configuration")]
+    [Tooltip("A specific wrong configuration that triggers the color inversion penalty. Length must match chairs array.")]
+    public bool[] penaltyStates;
+
+    [Tooltip("Seconds the player must wait before the penalty can trigger again.")]
+    public float penaltyCooldown = 5f;
+
     [Header("Events")]
-    [Tooltip("Fired once when the player gets every chair into the correct state.")]
+    [Tooltip("Fired once when every chair is in the correct state.")]
     public UnityEvent onPuzzleSolved;
+
+    [Tooltip("Fired when the penalty configuration is matched.")]
+    public UnityEvent onPenaltyTriggered;
 
     [Tooltip("Fired when the puzzle is manually reset.")]
     public UnityEvent onPuzzleReset;
 
     [Header("Optional — Code Display")]
-    [Tooltip("If assigned, this GameObject is activated when the puzzle is solved (e.g. a TextMeshPro showing the unlock code).")]
+    [Tooltip("If assigned, activated when the puzzle is solved.")]
     public GameObject codeDisplay;
 
     private bool solved = false;
+    private bool penaltyOnCooldown = false;
 
     void Start()
     {
@@ -41,42 +47,47 @@ public class ChairPuzzleManager : MonoBehaviour
     }
 
     /// <summary>
-    /// Called by any GrabbableChair when it is released and snaps to a new state.
+    /// Called by any GrabbableChair when it snaps to a new state.
     /// </summary>
     public void OnChairStateChanged()
     {
         if (solved) return;
 
-        if (CheckArrangement())
+        if (CheckArrangement(correctStates))
         {
             solved = true;
-            Debug.Log("[ChairPuzzle] Puzzle solved! Correct arrangement detected.");
+            Debug.Log("[ChairPuzzle] Puzzle solved!");
 
             if (codeDisplay != null)
                 codeDisplay.SetActive(true);
 
             onPuzzleSolved?.Invoke();
         }
+        else if (!penaltyOnCooldown && penaltyStates != null && CheckArrangement(penaltyStates))
+        {
+            Debug.Log("[ChairPuzzle] Penalty configuration detected!");
+            penaltyOnCooldown = true;
+            onPenaltyTriggered?.Invoke();
+            Invoke(nameof(ResetPenaltyCooldown), penaltyCooldown);
+        }
     }
 
-    /// <returns>True when every chair matches its expected pushed-in / pulled-out state.</returns>
-    bool CheckArrangement()
+    void ResetPenaltyCooldown() => penaltyOnCooldown = false;
+
+    bool CheckArrangement(bool[] states)
     {
-        if (chairs == null || correctStates == null) return false;
-        if (chairs.Length != correctStates.Length) return false;
+        if (chairs == null || states == null) return false;
+        if (chairs.Length != states.Length) return false;
 
         for (int i = 0; i < chairs.Length; i++)
         {
             if (chairs[i] == null) return false;
-            if (chairs[i].isPushedIn != correctStates[i]) return false;
+            if (chairs[i].isPushedIn != states[i]) return false;
         }
 
         return true;
     }
 
-    /// <summary>
-    /// Call to allow the puzzle to be solved again after a game reset.
-    /// </summary>
     public void ResetPuzzle()
     {
         solved = false;
